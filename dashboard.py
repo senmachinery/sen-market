@@ -93,6 +93,19 @@ def process(sym, name, mk):
     vol_avg = float(v20.iloc[-1]) if pd.notna(v20.iloc[-1]) else 0.0
     chg = (price / prev - 1) * 100 if prev else 0.0
 
+    # —— 高周期(周线)定方向：把同一年日线 resample 成周线，看大方向 ——
+    # KhanSaab 纪律：高周期定方向、低周期找入场；高低周期冲突就不该顺势进场。
+    wk = df.resample("W-FRI").agg(
+        {"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"}).dropna()
+    wk_up = wk_dn = False
+    if len(wk) >= 22:
+        w20s = ind.sma(wk["Close"], 20)
+        wpx = float(wk["Close"].iloc[-1]); w20v = float(w20s.iloc[-1])
+        w20_prev = float(w20s.iloc[-3]) if pd.notna(w20s.iloc[-3]) else w20v
+        if pd.notna(w20v):
+            wk_up = wpx > w20v and w20v >= w20_prev   # 周线在20周均线上方且均线上行
+            wk_dn = wpx < w20v and w20v <= w20_prev   # 周线在下方且均线下行
+
     above = price > p20
     below = price < p20
     # 近5日内是否刚上穿 / 下破 20MA
@@ -108,14 +121,16 @@ def process(sym, name, mk):
         nonlocal long_s
         if ok: long_s += w
         cl.append([label, bool(ok)])
-    addl("趋势向上（价>20MA>50MA）", price > p20 > p50, 25)
-    addl("近5日上穿20MA", cross_up, 15)
-    addl("RSI 50–70（有动能不超买）", 50 <= rsi_v <= 70, 15)
-    addl("放量（>1.2×20日均量）", surge, 10)
-    addl("ADX≥20（有趋势）", adx_v >= 20, 10)
-    addl("多头占优（+DI>−DI）", pdi_v > mdi_v, 10)
-    addl("MACD 金叉（多头）", macd_v > sig_v, 15)
+    addl("周线同向（高周期向上）", wk_up, 18)
+    addl("趋势向上（价>20MA>50MA）", price > p20 > p50, 22)
+    addl("近5日上穿20MA", cross_up, 12)
+    addl("RSI 50–70（有动能不超买）", 50 <= rsi_v <= 70, 12)
+    addl("放量（>1.2×20日均量）", surge, 8)
+    addl("ADX≥20（有趋势）", adx_v >= 20, 8)
+    addl("多头占优（+DI>−DI）", pdi_v > mdi_v, 8)
+    addl("MACD 金叉（多头）", macd_v > sig_v, 12)
     if rsi_v > 75: long_s -= 12            # 超买追高扣分
+    if wk_dn: long_s = int(long_s * 0.5)   # 高低周期方向冲突→砍半（冲突不顺势进场）
     long_s = max(0, min(100, long_s))
 
     # —— 做空分（镜像）——
@@ -124,24 +139,29 @@ def process(sym, name, mk):
         nonlocal short_s
         if ok: short_s += w
         cs.append([label, bool(ok)])
-    adds("趋势向下（价<20MA<50MA）", price < p20 < p50, 25)
-    adds("近5日下破20MA", cross_dn, 15)
-    adds("RSI 30–50（弱动能未极端超卖）", 30 <= rsi_v <= 50, 15)
-    adds("放量下跌（>1.2×20日均量）", surge, 10)
-    adds("ADX≥20（有趋势）", adx_v >= 20, 10)
-    adds("空头占优（−DI>+DI）", mdi_v > pdi_v, 10)
-    adds("MACD 死叉（空头）", macd_v < sig_v, 15)
+    adds("周线同向（高周期向下）", wk_dn, 18)
+    adds("趋势向下（价<20MA<50MA）", price < p20 < p50, 22)
+    adds("近5日下破20MA", cross_dn, 12)
+    adds("RSI 30–50（弱动能未极端超卖）", 30 <= rsi_v <= 50, 12)
+    adds("放量下跌（>1.2×20日均量）", surge, 8)
+    adds("ADX≥20（有趋势）", adx_v >= 20, 8)
+    adds("空头占优（−DI>+DI）", mdi_v > pdi_v, 8)
+    adds("MACD 死叉（空头）", macd_v < sig_v, 12)
     if rsi_v < 25: short_s -= 12           # 超卖追空（反弹风险）扣分
+    if wk_up: short_s = int(short_s * 0.5) # 高低周期方向冲突→砍半
     short_s = max(0, min(100, short_s))
 
     trend = "多头" if price > p20 > p50 else ("空头" if price < p20 < p50 else "纠缠")
     regime = "有趋势" if adx_v >= 25 else ("震荡" if adx_v < 20 else "趋势弱")
+    wk_dir = "周线多头" if wk_up else ("周线空头" if wk_dn else "周线走平/无方向")
+    # 有潜能 = 真的在走趋势：ADX≥20（有趋势强度）且 均线方向干净（不纠缠）。沉睡/震荡的过滤掉。
+    alive = (adx_v >= 20) and (trend in ("多头", "空头"))
     risk_r = ATR_MULT * atr_v               # 一倍风险 = 止损距离
     units = (ACCOUNT * RISK_PCT / 100) / risk_r if risk_r > 0 else 0
 
     meta = dict(sym=sym, name=name, mkt=mk, price=price, chg=chg,
                 long=long_s, short=short_s, cl=cl, cs=cs,
-                trend=trend, regime=regime, adx=adx_v,
+                trend=trend, regime=regime, adx=adx_v, wk=wk_dir, alive=bool(alive),
                 di=("多占优" if pdi_v > mdi_v else "空占优"),
                 rsi=rsi_v, atr=atr_v, r=risk_r, units=units, notional=units * price,
                 oversold=rsi_v < 30, overbought=rsi_v > 70)
@@ -217,7 +237,7 @@ h2{font-size:14px;color:#9b8cff;margin:22px 0 10px;border-bottom:1px solid #222b
 """
 
 APP_JS = """
-const MK_NAMES={us:'🇺🇸 美股',crypto:'₿ 加密',my:'🇲🇾 马股',macro:'🟡 商品/指数'};
+const MK_NAMES={_hot:'🔥 全场潜力',us:'🇺🇸 美股',crypto:'₿ 加密',my:'🇲🇾 马股',macro:'🟡 商品/指数'};
 const isM=window.innerWidth<560;const H=isM?330:400,RH=isM?105:130;
 const opts={layout:{background:{type:'solid',color:'#0e1422'},textColor:'#9aa3b2',fontSize:11},
  grid:{vertLines:{color:'#16203a'},horzLines:{color:'#16203a'}},
@@ -244,7 +264,7 @@ candle.applyOptions({autoscaleInfoProvider:orig=>{const res=orig();if(!res)retur
 
 const TF_ORDER=['1m','5m','15m','1h','4h','1d'];
 const TF_LABELS={'1m':'1分','5m':'5分','15m':'15分','1h':'1时','4h':'4时','1d':'日线'};
-let market='us',dir='long',cur=null,tf='1d',show20=true,show50=true,showLv=true;
+let market='_hot',dir='long',cur=null,tf='1d',show20=true,show50=true,showLv=true;
 let priceLines=[];
 const _cache={};
 function build(s,t){const k=s+'|'+t;if(_cache[k])return _cache[k];const d=DATA[s][t];
@@ -322,6 +342,7 @@ function renderDetail(){const m=META[cur];if(!m)return;
    +'<div class="px '+tcls+'">'+fmtPx(m.price)+' <span style="font-size:14px">'+chgHtml(m.chg)+'</span></div>'
    +'<div class="kv"><span>趋势</span><b class="'+tcls+'">'+m.trend+'</b></div>'
    +'<div class="kv"><span>ADX</span><b>'+m.adx.toFixed(0)+'（'+m.regime+'）· '+m.di+'</b></div>'
+   +'<div class="kv"><span>周线（高周期）</span><b class="'+(m.wk==='周线多头'?'up':(m.wk==='周线空头'?'down':''))+'">'+m.wk+'</b></div>'
    +'<div class="kv"><span>RSI(14)</span><b>'+m.rsi.toFixed(0)+'</b></div>'
    +'<div class="kv"><span>ATR(14)</span><b>'+fmtPx(m.atr)+'</b></div>'
    +'<div class="pos">仓位（账户$'+ACCT.toLocaleString()+' / 单笔险'+RISKP+'% / 止损'+ATRM+'×ATR）：'
@@ -368,10 +389,21 @@ def main():
             print(f"  ★ 盘中: {sym} → {'/'.join(tfs.keys()) or '无'}")
         markets.setdefault(mk, []).append(sym)
         ok += 1
-    # 默认按做多分排（前端切做空时会按做空分重排）
+    # 只让"有潜能/在走趋势"的标的进榜；沉睡/震荡的过滤掉（仍可在搜索框查看其图表）。
+    # 默认按做多分排（前端切做空时会按做空分重排）。
+    sleeping = 0
     for mk in markets:
-        markets[mk].sort(key=lambda s: meta_all[s]["long"], reverse=True)
-    order = [mk for mk in U.ORDER if mk in markets]
+        alive_syms = [s for s in markets[mk] if meta_all[s].get("alive")]
+        sleeping += len(markets[mk]) - len(alive_syms)
+        alive_syms.sort(key=lambda s: meta_all[s]["long"], reverse=True)
+        markets[mk] = alive_syms
+    # 🔥 全场潜力：跨所有市场，把趋势最强的挑出来（按 做多/做空 取较高分），最多15只
+    hot = sorted((s for s in meta_all if meta_all[s].get("alive")),
+                 key=lambda s: max(meta_all[s]["long"], meta_all[s]["short"]), reverse=True)[:15]
+    markets["_hot"] = hot
+    alive_total = len(hot)
+    order = ["_hot"] + [mk for mk in U.ORDER if markets.get(mk)]
+    print(f"  趋势过滤: 活跃 {sum(1 for s in meta_all if meta_all[s].get('alive'))} 只 / 沉睡过滤 {sleeping} 只")
 
     # 搜索框 datalist（全部标的）
     opts_html = "".join(
@@ -390,10 +422,11 @@ def main():
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Sen 市场仪表盘 — {today}</title><style>{CSS}</style></head><body>
 <h1>📊 Sen 市场仪表盘 <button class="rfx" onclick="location.reload()">🔄 刷新</button></h1>
-<div class="sub">🕒 数据更新 <b style="color:#9bb3ff">{gen} MYT</b> · 每约30分钟自动刷新，点 🔄 看最新 · 共 {ok} 个标的 · 数据 yfinance</div>
-<div class="warn">⚠ 信号分只是<b>透明的筛子</b>（趋势/动能/量/ADX/MACD 逐条打分）；入场/TP 价位是<b>机械的 ATR 风险倍数</b>，<b>都不是买卖信号、不是预测、不是理财建议</b>。历史≠未来；要动手先 Paper 验证、控仓位、只用亏得起的钱。</div>
+<div class="sub">🕒 数据更新 <b style="color:#9bb3ff">{gen} MYT</b> · 每约30分钟自动刷新，点 🔄 看最新 · 扫 {ok} 个标的 · <b style="color:#ffce6b">活跃 {alive_total} 只在走趋势</b>，沉睡/震荡 {sleeping} 只已过滤 · 数据 yfinance</div>
+<div class="warn">⚠ 信号分只是<b>透明的筛子</b>（<b>周线高周期定向</b> + 日线趋势/动能/量/ADX/MACD 逐条打分；高低周期方向冲突自动砍半）；入场/TP 价位是<b>机械的 ATR 风险倍数</b>，<b>都不是买卖信号、不是预测、不是理财建议</b>。历史≠未来；要动手先 Paper 验证、控仓位、只用亏得起的钱。</div>
 
 <h2>🏆 信号榜 Top 10（点一行看它的图 + 价位）</h2>
+<div style="color:#6b768c;font-size:11px;margin:-4px 0 8px">🔥 <b>全场潜力</b>=跨所有市场挑趋势最强的；其余分市场看。只列<b>在走趋势</b>的（ADX≥20 且均线方向干净），<b>不动的、震荡绞肉的已自动过滤</b>（仍可在下方搜索框查看任意代码）。</div>
 <div class="tabs" id="tabs"></div>
 <div class="dirtabs">
  <button class="dirb on" data-d="long">📈 做多榜</button>
