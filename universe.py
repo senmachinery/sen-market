@@ -18,7 +18,7 @@ MARKETS = {
         ("BNB-USD", "BNB"), ("XRP-USD", "XRP"), ("ADA-USD", "Cardano"),
         ("DOGE-USD", "Dogecoin"), ("AVAX-USD", "Avalanche"), ("LINK-USD", "Chainlink"),
         ("DOT-USD", "Polkadot"), ("LTC-USD", "Litecoin"), ("BCH-USD", "Bitcoin Cash"),
-        ("ATOM-USD", "Cosmos"), ("UNI-USD", "Uniswap"),
+        ("ATOM-USD", "Cosmos"),
     ]),
     "my": ("🇲🇾 马股", [
         ("1155.KL", "Maybank 马银行"), ("1295.KL", "Public Bank 大众"), ("1023.KL", "CIMB 联昌"),
@@ -33,7 +33,7 @@ MARKETS = {
         ("0166.KL", "Inari 怡纳利"), ("5296.KL", "MR DIY"), ("5099.KL", "Capital A 亚航"),
         ("8869.KL", "Press Metal 齐力工业"), ("5398.KL", "Gamuda 金务大"), ("1818.KL", "Bursa 大马交易所"),
         # —— 中小盘 / 热门散户票 ——
-        ("5014.KL", "MAHB 大马机场"), ("5246.KL", "Westports 西港"), ("3034.KL", "Hap Seng 合成"),
+        ("5246.KL", "Westports 西港"), ("3034.KL", "Hap Seng 合成"),
         ("4707.KL", "Nestle 雀巢"), ("4065.KL", "PPB Group"), ("3689.KL", "F&N"),
         ("7084.KL", "QL Resources"), ("6599.KL", "AEON 永旺"), ("7052.KL", "Padini"),
         ("2836.KL", "Carlsberg"), ("3255.KL", "Heineken"), ("0138.KL", "MyEG"),
