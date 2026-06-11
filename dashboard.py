@@ -175,7 +175,8 @@ def process(sym, name, mk):
                 di=("多占优" if pdi_v > mdi_v else "空占优"),
                 rsi=rsi_v, atr=atr_v, r=risk_r, units=units, notional=units * price,
                 oversold=rsi_v < 30, overbought=rsi_v > 70,
-                bo_l=bool(bo_l), bo_s=bool(bo_s), h20=h20_v, l20=l20_v)
+                bo_l=bool(bo_l), bo_s=bool(bo_s), h20=h20_v, l20=l20_v,
+                ma20=p20, ma50=p50)   # 回踩入场检测用（entry_rules.check_pullback）
 
     # 日线图表数据
     series = build_series(df, intraday=False, bars=BARS_DAILY)
