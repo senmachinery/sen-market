@@ -93,6 +93,16 @@ def process(sym, name, mk):
     vol_avg = float(v20.iloc[-1]) if pd.notna(v20.iloc[-1]) else 0.0
     chg = (price / prev - 1) * 100 if prev else 0.0
 
+    # —— 20日突破检测（进场规则引擎用）：今天刚突破"前20日最高/最低"（不含当天），昨天还没破 ——
+    hi20 = df["High"].rolling(20).max().shift(1)
+    lo20 = df["Low"].rolling(20).min().shift(1)
+    bo_l = bo_s = False
+    if len(df) >= 23 and pd.notna(hi20.iloc[-1]) and pd.notna(hi20.iloc[-2]):
+        bo_l = price > float(hi20.iloc[-1]) and float(c.iloc[-2]) <= float(hi20.iloc[-2])
+        bo_s = price < float(lo20.iloc[-1]) and float(c.iloc[-2]) >= float(lo20.iloc[-2])
+    h20_v = fnum(hi20.iloc[-1])   # 画在图上的"前20日高/低"参考线
+    l20_v = fnum(lo20.iloc[-1])
+
     # —— 高周期(周线)定方向：把同一年日线 resample 成周线，看大方向 ——
     # KhanSaab 纪律：高周期定方向、低周期找入场；高低周期冲突就不该顺势进场。
     wk = df.resample("W-FRI").agg(
@@ -164,7 +174,8 @@ def process(sym, name, mk):
                 trend=trend, regime=regime, adx=adx_v, wk=wk_dir, alive=bool(alive),
                 di=("多占优" if pdi_v > mdi_v else "空占优"),
                 rsi=rsi_v, atr=atr_v, r=risk_r, units=units, notional=units * price,
-                oversold=rsi_v < 30, overbought=rsi_v > 70)
+                oversold=rsi_v < 30, overbought=rsi_v > 70,
+                bo_l=bool(bo_l), bo_s=bool(bo_s), h20=h20_v, l20=l20_v)
 
     # 日线图表数据
     series = build_series(df, intraday=False, bars=BARS_DAILY)
@@ -193,6 +204,7 @@ h2{font-size:14px;color:#9b8cff;margin:22px 0 10px;border-bottom:1px solid #222b
 .lvl .note{color:#6b768c;font-size:11px;margin-top:6px}
 .flag{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;margin-left:6px}
 .flag.os{background:#3a2a12;color:#e0b070}.flag.ob{background:#7a1d1d;color:#ffb3b3}
+.flag.bo{background:#102417;color:#6ee7a8;border:1px solid #1d3a2a}
 .tfbar{display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin:0 0 8px}
 .tf{background:#141c30;border:1px solid #283455;color:#aab2c5;font-size:13px;padding:7px 13px;border-radius:7px;cursor:pointer;min-height:36px}
 .tf.on{background:#1a73e8;border-color:#1a73e8;color:#fff;font-weight:700}
@@ -285,9 +297,10 @@ function renderTabs(){let h='';for(const k of ORDER){h+='<div class="tab'+(k===m
  document.querySelectorAll('#tabs .tab').forEach(t=>t.onclick=()=>{market=t.dataset.k;renderTabs();renderBoard();});}
 function renderBoard(){const syms=boardSyms();let h='';
  syms.forEach((s,i)=>{const m=META[s];if(!m)return;const sc=m[dir];
+  const bo=dir==='long'?m.bo_l:m.bo_s;   // 🎯今日刚突破前20日高/低（与盯盘员进场引擎同一检测）
   h+='<div class="row'+(s===cur?' sel':'')+'" data-s="'+s+'">'
    +'<span class="rk">'+(i+1)+'</span>'
-   +'<span class="nm"><b>'+s+'</b><i>'+m.name+'</i></span>'
+   +'<span class="nm"><b>'+s+(bo?' 🎯':'')+'</b><i>'+m.name+'</i></span>'
    +'<span class="pxc">'+fmtPx(m.price)+'<br>'+chgHtml(m.chg)+'</span>'
    +'<span class="sc"><span class="scbar"><span style="width:'+sc+'%"></span></span>'+sc+'</span>'
    +'</div>';});
@@ -299,7 +312,9 @@ function drawLines(){priceLines.forEach(p=>{try{candle.removePriceLine(p);}catch
  else{sl=p+r;tps=[p-r,p-2*r,p-3*r];et='SELL 入场';}
  priceLines.push(candle.createPriceLine({price:p,color:'#e0b070',lineWidth:2,lineStyle:0,axisLabelVisible:true,title:et}));
  priceLines.push(candle.createPriceLine({price:sl,color:'#f87272',lineWidth:1,lineStyle:2,axisLabelVisible:true,title:'SL 止损'}));
- ['TP1','TP2','TP3'].forEach((t,i)=>priceLines.push(candle.createPriceLine({price:tps[i],color:'#36d399',lineWidth:1,lineStyle:2,axisLabelVisible:true,title:t})));}
+ ['TP1','TP2','TP3'].forEach((t,i)=>priceLines.push(candle.createPriceLine({price:tps[i],color:'#36d399',lineWidth:1,lineStyle:2,axisLabelVisible:true,title:t})));
+ const bl=dir==='long'?m.h20:m.l20;   // 进场引擎盯的那道坎：前20日高(做多)/低(做空)
+ if(bl!=null)priceLines.push(candle.createPriceLine({price:bl,color:'#9bb3ff',lineWidth:1,lineStyle:3,axisLabelVisible:true,title:dir==='long'?'20日高':'20日低'}));}
 function drawChart(){const d=build(cur,tf);
  candle.setData(d.candles);vol.setData(d.volume);
  ma20.setData(show20?d.sma20:[]);ma50.setData(show50?d.sma50:[]);rsiS.setData(d.rsi);
@@ -335,8 +350,10 @@ function renderDetail(){const m=META[cur];if(!m)return;
    +'<div class="lr tp"><span>TP3（3R · 盈亏1:3）</span><b>'+fmtPx(tp[2])+'</b></div>'
    +warn+'<div class="note">机械参考价位（入场≈现价，止损='+ATRM+'×ATR，TP=1/2/3倍风险）。<b>不是预测、不是买卖信号</b>。回踩/反抽入场比追价更稳。</div></div>';
  let flag='';
- if(m.oversold)flag='<span class="flag os">超卖 RSI<30</span>';
- else if(m.overbought)flag='<span class="flag ob">超买 RSI>70</span>';
+ if(dir==='long'&&m.bo_l)flag+='<span class="flag bo">🎯 今日突破20日高</span>';
+ if(dir==='short'&&m.bo_s)flag+='<span class="flag bo">🎯 今日跌破20日低</span>';
+ if(m.oversold)flag+='<span class="flag os">超卖 RSI<30</span>';
+ else if(m.overbought)flag+='<span class="flag ob">超买 RSI>70</span>';
  document.getElementById('detail').innerHTML=
   '<div class="panel"><h3>'+m.sym+' · '+m.name+flag+'</h3>'
    +'<div class="px '+tcls+'">'+fmtPx(m.price)+' <span style="font-size:14px">'+chgHtml(m.chg)+'</span></div>'
@@ -345,8 +362,9 @@ function renderDetail(){const m=META[cur];if(!m)return;
    +'<div class="kv"><span>周线（高周期）</span><b class="'+(m.wk==='周线多头'?'up':(m.wk==='周线空头'?'down':''))+'">'+m.wk+'</b></div>'
    +'<div class="kv"><span>RSI(14)</span><b>'+m.rsi.toFixed(0)+'</b></div>'
    +'<div class="kv"><span>ATR(14)</span><b>'+fmtPx(m.atr)+'</b></div>'
-   +'<div class="pos">仓位（账户$'+ACCT.toLocaleString()+' / 单笔险'+RISKP+'% / 止损'+ATRM+'×ATR）：'
-     +'最大 '+m.units.toFixed(4)+' 单位 ≈ $'+Math.round(m.notional).toLocaleString()+'</div></div>'
+   +'<div class="pos">仓位（<b>示例参数</b> 账户$'+ACCT.toLocaleString()+' / 单笔险'+RISKP+'% / 止损'+ATRM+'×ATR）：'
+     +'最大 '+m.units.toFixed(4)+' 单位 ≈ $'+Math.round(m.notional).toLocaleString()
+     +'<br><span style="color:#e0b070">⚠ 这是公开页的演示数；真实下单数量以 Telegram 推送为准</span></div></div>'
   +'<div class="panel"><div class="scbig">'+(dir==='long'?'做多':'做空')+'信号分 <b>'+m[dir]+'</b> / 100</div>'
    +'<div class="bdgs">'+bd+'</div>'+lvl+'</div>';}
 
@@ -363,7 +381,11 @@ sync(chart,rchart);sync(rchart,chart);
 new ResizeObserver(()=>{chart.applyOptions({width:cEl.clientWidth});rchart.applyOptions({width:rEl.clientWidth});}).observe(cEl);
 
 renderTabs();renderBoard();
-select(boardSyms()[0]);
+// 深链接：Telegram 消息里的「📊 仪表盘看图」带 #s=代码 → 打开直接选中该标的
+let deep=null;
+try{const hm=location.hash.match(/^#s=(.+)$/);if(hm)deep=decodeURIComponent(hm[1]).toUpperCase();}catch(e){}
+if(deep&&META[deep]){market=META[deep].mkt;renderTabs();renderBoard();select(deep);}
+else select(boardSyms()[0]);
 """
 
 
