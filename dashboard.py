@@ -381,10 +381,12 @@ sync(chart,rchart);sync(rchart,chart);
 new ResizeObserver(()=>{chart.applyOptions({width:cEl.clientWidth});rchart.applyOptions({width:rEl.clientWidth});}).observe(cEl);
 
 renderTabs();renderBoard();
-// 深链接：Telegram 消息里的「📊 仪表盘看图」带 #s=代码 → 打开直接选中该标的
-let deep=null;
-try{const hm=location.hash.match(/^#s=(.+)$/);if(hm)deep=decodeURIComponent(hm[1]).toUpperCase();}catch(e){}
-if(deep&&META[deep]){market=META[deep].mkt;renderTabs();renderBoard();select(deep);}
+// 深链接：Telegram 消息里的「📊 仪表盘看图」带 #s=代码(&d=long/short) → 打开直接选中该标的并切到对应做多/做空视角
+let deep=null,deepDir=null;
+try{const hm=location.hash.match(/^#s=([^&]+)(?:&d=(long|short))?$/);if(hm){deep=decodeURIComponent(hm[1]).toUpperCase();deepDir=hm[2]||null;}}catch(e){}
+if(deep&&META[deep]){
+ if(deepDir){dir=deepDir;document.querySelectorAll('.dirb').forEach(x=>x.classList.toggle('on',x.dataset.d===dir));}
+ market=META[deep].mkt;renderTabs();renderBoard();select(deep);}
 else select(boardSyms()[0]);
 """
 
